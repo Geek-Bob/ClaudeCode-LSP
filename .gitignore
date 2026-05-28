@@ -1,0 +1,13 @@
+# 调试日志
+*.log
+
+# Node
+node_modules/
+
+# C# 编译产物
+obj/
+bin/
+
+# 系统文件
+Thumbs.db
+Desktop.ini

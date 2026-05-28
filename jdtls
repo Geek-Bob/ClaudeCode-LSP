@@ -1,0 +1,20 @@
+#!/bin/sh
+# =============================================================================
+# jdtls LSP 启动脚本 — Eclipse JDT Language Server (Java)
+#
+# 使用方式：
+#   1. 修改下方 JDTLS_HOME 和 JAVA21 变量，指向你的安装路径
+#   2. 或者设置环境变量 JDTLS_HOME / JAVA_HOME_21
+#   3. 确保 jdtls 目录在 PATH 中，Claude Code 通过 cmd /c 调用
+#
+# 环境变量优先级高于脚本内默认值。
+# =============================================================================
+
+# JDT Language Server 安装目录
+# 下载地址：https://download.eclipse.org/jdtls/milestones/
+JDTLS_HOME="${JDTLS_HOME:-D:/jdtls/jdt-language-server-latest}"
+
+# JDK 21 的 java.exe 路径（系统默认可以是 Java 8，LSP 需要 Java 21+）
+JAVA21="${JAVA21:-${JAVA_HOME_21:-D:/jdk-21/bin/java.exe}}"
+
+exec py "$JDTLS_HOME/bin/jdtls" --java-executable "$JAVA21" "$@"

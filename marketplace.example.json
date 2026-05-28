@@ -1,0 +1,29 @@
+{
+  "lspServers": {
+    "typescript-ls": {
+      "command": "cmd",
+      "args": ["/c", "typescript-language-server", "--stdio"],
+      "extensionToLanguage": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact"
+      }
+    },
+    "python-ls": {
+      "command": "cmd",
+      "args": ["/c", "pyright-langserver", "--stdio"],
+      "extensionToLanguage": { ".py": "python" }
+    },
+    "jdtls": {
+      "command": "cmd",
+      "args": ["/c", "jdtls"],
+      "extensionToLanguage": { ".java": "java" },
+      "startupTimeout": 120000
+    },
+    "csharp-ls": {
+      "command": "node",
+      "args": ["C:/Users/<你的用户名>/.local/bin/omnisharp-proxy.js"],
+      "extensionToLanguage": { ".cs": "csharp" },
+      "startupTimeout": 60000
+    }
+  }
+}
