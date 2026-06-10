@@ -15,7 +15,7 @@
 | TypeScript | typescript-language-server | 官方支持，`cmd /c` 中转 | 低 |
 | Python | Pyright | 原生 exe，直接配置路径 | 低 |
 | Java | Eclipse JDT LS | `cmd /c` + bash 脚本 + JDK 隔离 | 中 |
-| C# | OmniSharp | Node.js 代理 + 自动项目发现 | 高 |
+| C# | csharp-ls（推荐）/ OmniSharp | `cmd /c` 直连 / Node.js 代理 | 低 / 高 |
 
 > 想了解完整的踩坑过程和技术原理？详见 [lsp-blog.md](./lsp-blog.md) —— 包含 Bun spawn 限制、cmd /c pipe 断裂、OmniSharp LSP 协议细节等深度分析。
 
@@ -39,21 +39,33 @@ npm install -g pyright
 1. 下载 [Eclipse JDT Language Server](https://download.eclipse.org/jdtls/milestones/)，解压到 `D:\jdtls\`
 2. 安装 [JDK 21](https://adoptium.net/download/)（可与系统默认 JDK 版本共存）
 
-**C#**
+**C#**（两种方案任选其一）
+
+方案 A — csharp-ls（推荐，无需代理脚本）：
+```bash
+dotnet tool install -g csharp-ls
+```
+前置条件：`dotnet restore` 必须先成功（NuGet 包未恢复会导致符号分析返回空）。
+
+方案 B — OmniSharp（自包含版本，需要代理脚本）：
 1. 下载 [OmniSharp 自包含版本](https://github.com/OmniSharp/omnisharp-roslyn/releases)（`omnisharp-win-x64-net6.0.zip`）
 2. 解压到 `D:\OmniSharp\`
 
 ### 2. 配置脚本
 
-**C# — omnisharp-proxy.js**
+**C# — csharp-ls（推荐）或 OmniSharp**
 
-编辑脚本中的 `OMNISHARP_EXE` 常量，或设置系统环境变量：
-
+csharp-ls 方案（推荐，无需代理脚本）：
 ```bash
-setx OMNISHARP_EXE "D:\OmniSharp\omnisharp-win-x64-net6.0\OmniSharp.exe"
+dotnet tool install -g csharp-ls
 ```
 
-将此脚本放入 `%USERPROFILE%\.local\bin\`。
+OmniSharp 方案（需要代理脚本）：
+1. 编辑 `omnisharp-proxy.js` 中的 `OMNISHARP_EXE` 常量，或设置环境变量：
+   ```bash
+   setx OMNISHARP_EXE "D:\OmniSharp\omnisharp-win-x64-net6.0\OmniSharp.exe"
+   ```
+2. 将 `omnisharp-proxy.js` 放入 `%USERPROFILE%\.local\bin\`
 
 **Java — jdtls / jdtls.cmd**
 
@@ -93,8 +105,8 @@ setx JAVA_HOME_21 "D:\jdk-21"
       "startupTimeout": 120000
     },
     "csharp-ls": {
-      "command": "node",
-      "args": ["%USERPROFILE%\\.local\\bin\\omnisharp-proxy.js"],
+      "command": "cmd",
+      "args": ["/c", "csharp-ls"],
       "extensionToLanguage": { ".cs": "csharp" },
       "startupTimeout": 60000
     }
@@ -108,7 +120,36 @@ setx JAVA_HOME_21 "D:\jdk-21"
 
 打开任意 `.cs` / `.java` / `.py` / `.ts` 文件，LSP 功能自动生效。
 
-## 核心原理：为什么要用 Node.js 代理？
+## csharp-ls LSP 功能验证
+
+使用 Claude Code 内置 LSP 工具对 csharp-ls v0.20.0 进行了完整测试（测试项目：`lsp-test/csharp/`）：
+
+| 功能 | 状态 | 验证内容 |
+|------|------|----------|
+| `documentSymbol` | ✅ | 3 个文件全部正确解析（类、方法、属性、字段、接口） |
+| `hover` | ✅ | 显示方法签名 + XML 文档注释（如 `int Calculator.Add(int a, int b)`） |
+| `goToDefinition` | ✅ | 跨文件跳转：类型定义、方法定义、构造函数 |
+| `findReferences` | ✅ | 跨文件引用查找（接口实现、类实例化、方法调用） |
+| `goToImplementation` | ✅ | 接口 → 所有实现类（`ILogger` → `ConsoleLogger` + `FileLogger`） |
+| `workspaceSymbol` | ✅ | 工作区级别符号搜索（类名、方法名） |
+| `callHierarchy` | ❌ | csharp-ls v0.20.0 不支持 `prepareCallHierarchy` |
+
+**调用链路探索验证：**
+
+成功追踪 `Calculator.Add` 的完整调用链：
+```
+Main → TestBasicOperations → Add → CalculationRecord / _history / _logger.Log
+Main → TestBatchCalculation → BatchCalculate → Add → (同上)
+```
+
+**已知限制：**
+- `dotnet restore` 必须先成功，否则符号分析返回空
+- 不支持 `callHierarchy`（incoming/outgoing calls）
+- 多 target framework 项目可能只分析其中一个 target
+
+> csharp-ls 不需要代理脚本，直接通过 `cmd /c csharp-ls` 即可运行。OmniSharp 仍需要 Node.js 代理。
+
+## 核心原理：OmniSharp 为什么要用 Node.js 代理？
 
 ### 问题链
 
@@ -163,7 +204,7 @@ Claude Code (Bun)         代理 (Node.js)          OmniSharp (.NET)
 ## 文件说明
 
 ```
-├── omnisharp-proxy.js   # C# LSP 代理（核心，~220 行，零依赖）
+├── omnisharp-proxy.js   # C# LSP 代理（仅 OmniSharp 需要）
 ├── jdtls                # Java LSP bash 启动脚本
 ├── jdtls.cmd            # Java LSP cmd 启动脚本
 └── README.md
@@ -190,7 +231,9 @@ Claude Code (Bun)         代理 (Node.js)          OmniSharp (.NET)
 
 - Windows 10 / 11
 - [Node.js](https://nodejs.org/)（任意版本，仅用于运行代理脚本）
-- [OmniSharp](https://github.com/OmniSharp/omnisharp-roslyn/releases)（自包含版本，无需 .NET runtime）
+- C# LSP（二选一）：
+  - [csharp-ls](https://github.com/razzmatazz/csharp-language-server)（推荐，需要 .NET SDK 6.0+）
+  - [OmniSharp](https://github.com/OmniSharp/omnisharp-roslyn/releases)（自包含版本，无需 .NET runtime）
 - [JDK 21](https://adoptium.net/download/)（仅 Java，可与系统默认 JDK 共存）
 
 ## 许可证
@@ -199,6 +242,7 @@ MIT
 
 ## 致谢
 
+- [csharp-ls](https://github.com/razzmatazz/csharp-language-server) — C# LSP 服务器（推荐）
 - [OmniSharp](https://github.com/OmniSharp/omnisharp-roslyn) — C# LSP 服务器
 - [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) — Java LSP 服务器
 - [Pyright](https://github.com/microsoft/pyright) — Python 类型检查器 / LSP

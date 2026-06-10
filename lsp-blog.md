@@ -18,8 +18,8 @@ Claude Code 通过 marketplace.json 注册 LSP 服务器：
 {
   "lspServers": {
     "csharp-ls": {
-      "command": "node",
-      "args": ["C:/path/to/proxy.js"],
+      "command": "cmd",
+      "args": ["/c", "csharp-ls"],
       "extensionToLanguage": { ".cs": "csharp" },
       "startupTimeout": 60000
     }
@@ -123,14 +123,45 @@ exec py "$JDTLS_HOME/bin/jdtls" --java-executable "$JAVA21" "$@"
 }
 ```
 
-### C# — OmniSharp（重点）
+### C# — csharp-ls（推荐，无需代理）
 
-这是最复杂的方案，也是本文的核心。
+csharp-ls 是 .NET 社区的轻量级 LSP 服务器，基于 Roslyn API 但不需要完整 MSBuild 工具链。关键优势：**可以直接通过 `cmd /c` 运行，不需要 Node.js 代理。**
 
-**为什么是 OmniSharp？**
-- `csharp-ls`（.NET 全局工具）：功能完整但需要 .NET SDK，启动慢
-- Microsoft Roslyn LSP（VS Code 扩展内置）：需要 .NET 10，目前不够成熟
-- OmniSharp：社区最老牌的 C# LSP，自包含 .NET 6（无需安装 runtime），通过 `-lsp` 支持 LSP 协议
+```json
+{
+  "csharp-ls": {
+    "command": "cmd",
+    "args": ["/c", "csharp-ls"],
+    "extensionToLanguage": { ".cs": "csharp" },
+    "startupTimeout": 60000
+  }
+}
+```
+
+**前置条件：** `dotnet restore` 必须先成功。NuGet 包没恢复的话，csharp-ls 找不到依赖的类型定义，符号分析会返回空。
+
+**LSP 功能验证（v0.20.0）：**
+
+| 功能 | 状态 | 验证内容 |
+|------|------|----------|
+| `documentSymbol` | ✅ | 正确解析类、方法、属性、字段、接口 |
+| `hover` | ✅ | 方法签名 + XML 文档注释 |
+| `goToDefinition` | ✅ | 跨文件跳转 |
+| `findReferences` | ✅ | 跨文件引用查找 |
+| `goToImplementation` | ✅ | 接口 → 实现类 |
+| `workspaceSymbol` | ✅ | 工作区符号搜索 |
+| `callHierarchy` | ❌ | 不支持 |
+
+**调用链路探索验证：** 成功追踪 `Calculator.Add` 的完整调用链——`Main → TestBasicOperations → Add → CalculationRecord / _history / _logger.Log`，以及 `Main → TestBatchCalculation → BatchCalculate → Add`。
+
+**已知限制：**
+- 多 target framework 项目可能只分析其中一个 target
+- 对 source generators 支持有限
+- 不支持 `callHierarchy`（incoming/outgoing calls）
+
+### C# — OmniSharp（需要代理）
+
+如果你的项目结构复杂（多 target framework、自定义 MSBuild 属性），csharp-ls 分析不准时可以考虑 OmniSharp。但 OmniSharp 需要 Node.js 代理来解决以下问题：
 
 **代理需要解决的三个问题：**
 
@@ -235,10 +266,18 @@ Claude Code (Bun)         代理 (Node.js)          OmniSharp (.NET)
 ### 1. 前提条件
 
 - Windows 10/11
-- Node.js（任何版本）
-- .NET SDK 9.0（仅用于 OmniSharp 分析项目，不会用到 9 的 runtime）
+- Node.js（任何版本，仅 OmniSharp 代理需要）
+- .NET SDK 6.0+（csharp-ls 需要）
 
-### 2. 下载 OmniSharp
+### 2. 安装 csharp-ls（推荐）
+
+```bash
+dotnet tool install -g csharp-ls
+```
+
+前置条件：`dotnet restore` 必须先成功。
+
+### 2b. 下载 OmniSharp（备选）
 
 ```bash
 # 下载自包含版本（无需安装 .NET 6 runtime）
@@ -274,8 +313,8 @@ jdtls.cmd             ← Java LSP cmd 启动器
 {
   "lspServers": {
     "csharp-ls": {
-      "command": "node",
-      "args": ["C:/Users/<你>/.local/bin/omnisharp-proxy.js"],
+      "command": "cmd",
+      "args": ["/c", "csharp-ls"],
       "extensionToLanguage": { ".cs": "csharp" },
       "startupTimeout": 60000
     },
@@ -310,10 +349,14 @@ jdtls.cmd             ← Java LSP cmd 启动器
 
 ## 七、小结
 
-Claude Code 的 LSP 机制是开放的，但 Windows + Bun 的组合确实有不少坑。核心思路就一条：**用 Node.js 做代理，解决进程兼容性和协议不匹配**。这套方案我们已经验证过 TypeScript、Python、Java、C# 四种语言，所有 LSP 核心功能都正常工作。
+Claude Code 的 LSP 机制是开放的，但 Windows + Bun 的组合确实有不少坑。
+
+**核心发现：** C# 的 csharp-ls 可以通过 `cmd /c` 直接运行，完全不需要 Node.js 代理——这与我们最初的认知不同。csharp-ls 虽然也是 .NET 应用，但它的 stdio 通信在 `cmd /c` 链路上没有被破坏，所有核心 LSP 功能（documentSymbol、hover、definition、references、implementation、workspaceSymbol）均正常工作。
+
+OmniSharp 仍然需要 Node.js 代理来解决 `cmd /c` 破坏 stdio pipe 的问题，但如果你的项目不是特别复杂（单 target framework、标准 MSBuild 配置），csharp-ls 是更好的选择——零配置、零代理、直接可用。
 
 所有的脚本都放在 [GitHub 链接]，欢迎 PR 和 issue。
 
 ---
 
-*作者：Claude & Admin | 2026-05-27*
+*作者：Claude & Admin | 2026-05-27 · 更新于 2026-06-10（新增 csharp-ls 方案验证）*

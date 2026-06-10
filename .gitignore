@@ -7,7 +7,11 @@ node_modules/
 # C# 编译产物
 obj/
 bin/
+.vs/
 
 # 系统文件
 Thumbs.db
 Desktop.ini
+
+# Claude Code 插件数据
+.remember/

@@ -20,8 +20,8 @@
       "startupTimeout": 120000
     },
     "csharp-ls": {
-      "command": "node",
-      "args": ["C:/Users/<你的用户名>/.local/bin/omnisharp-proxy.js"],
+      "command": "cmd",
+      "args": ["/c", "csharp-ls"],
       "extensionToLanguage": { ".cs": "csharp" },
       "startupTimeout": 60000
     }
